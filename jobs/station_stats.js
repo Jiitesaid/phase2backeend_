@@ -41,7 +41,9 @@ export async function updateStationStats() {
       const rawBatteries = data.batteries || [];
       const station_status =
         data.station_status === "Offline" ? "Offline" : "Online";
-
+      // gooo
+      // gooooo
+      // test
       // 2. Load station metadata (name, location, iccid)
       const doc = await db.collection("stations").doc(imei).get();
       let meta = doc.exists ? doc.data() : {};
