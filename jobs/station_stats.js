@@ -41,17 +41,15 @@ export async function updateStationStats() {
       const rawBatteries = data.batteries || [];
       const station_status =
         data.station_status === "Offline" ? "Offline" : "Online";
-      // gooo
-      // gooooo
-      // test
-      // 2. Load station metadata (name, location, iccid)
-      const doc = await db.collection("stations").doc(imei).get();
-      let meta = doc.exists ? doc.data() : {};
 
-      stationCache[imei] = {
-        ...stationCache[imei],
-        iccid: meta.iccid || stationCache[imei]?.iccid || "",
-      };
+      // 2. Load station metadata (name, location, iccid)
+     const doc = await db.collection("stations").doc(imei).get();
+    let meta = doc.exists ? doc.data() : {};
+    
+    stationCache[imei] = {
+      ...stationCache[imei],
+      iccid: meta.iccid || stationCache[imei]?.iccid || "",
+    };
 
 
       // 3. If offline, write offline snapshot and continue
@@ -211,4 +209,4 @@ export async function updateStationStats() {
   }
 }
 
-export default updateStationStats;
+export default updateStationStats;]
