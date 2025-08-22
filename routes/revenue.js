@@ -13,6 +13,26 @@ const imeiToStationCode = {
   "WSEP161741066503": "03",
 };
 
+// ✅ Helper: calculate unique rentals (no double count)
+const calculateUniqueRevenue = (snapshot) => {
+  let total = 0;
+  let uniqueDocs = new Set();
+
+  snapshot.forEach((doc) => {
+    if (!uniqueDocs.has(doc.id)) {
+      uniqueDocs.add(doc.id);
+
+      const data = doc.data();
+      const amount = parseFloat(data.amount || 0);
+      if (!isNaN(amount)) {
+        total += amount;
+      }
+    }
+  });
+
+  return { total, count: uniqueDocs.size };
+};
+
 // ✅ DAILY REVENUE FOR SINGLE STATION (by IMEI)
 router.get("/daily/:imei", async (req, res) => {
   const imei = req.params.imei;
@@ -33,17 +53,7 @@ router.get("/daily/:imei", async (req, res) => {
       .where("status", "in", ["rented", "returned"])
       .get();
 
-    let total = 0;
-    let count = 0;
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const amount = parseFloat(data.amount || 0);
-      if (!isNaN(amount)) {
-        total += amount;
-        count++;
-      }
-    });
+    const { total, count } = calculateUniqueRevenue(snapshot);
 
     res.json({
       imei,
@@ -70,17 +80,7 @@ router.get("/daily", async (req, res) => {
       .where("status", "in", ["rented", "returned"])
       .get();
 
-    let total = 0;
-    let count = 0;
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const amount = parseFloat(data.amount || 0);
-      if (!isNaN(amount)) {
-        total += amount;
-        count++;
-      }
-    });
+    const { total, count } = calculateUniqueRevenue(snapshot);
 
     res.json({
       totalRevenueToday: total,
@@ -113,17 +113,7 @@ router.get("/monthly/:imei", async (req, res) => {
       .where("status", "in", ["rented", "returned"])
       .get();
 
-    let total = 0;
-    let count = 0;
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const amount = parseFloat(data.amount || 0);
-      if (!isNaN(amount)) {
-        total += amount;
-        count++;
-      }
-    });
+    const { total, count } = calculateUniqueRevenue(snapshot);
 
     res.json({
       imei,
@@ -150,17 +140,7 @@ router.get("/monthly", async (req, res) => {
       .where("status", "in", ["rented", "returned"])
       .get();
 
-    let total = 0;
-    let count = 0;
-
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      const amount = parseFloat(data.amount || 0);
-      if (!isNaN(amount)) {
-        total += amount;
-        count++;
-      }
-    });
+    const { total, count } = calculateUniqueRevenue(snapshot);
 
     res.json({
       totalRevenueMonthly: total,
