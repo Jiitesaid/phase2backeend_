@@ -18,6 +18,9 @@ import userRoutes from "./routes/userRoutes.js";
 import transactionRoutes from "./routes/transactionRoutes.js";
 import chartsRoute from "./routes/charts.js";
 import chartsAll from "./routes/chartsAll.js";
+import blacklistRoutes, {
+  isPhoneBlacklisted,
+} from "./routes/blacklistRoutes.js";
 
 // ...
 import db from "./config/firebase.js";
@@ -97,6 +100,18 @@ app.post("/api/pay/:stationCode", async (req, res) => {
 
   if (!phoneNumber || !amount) {
     return res.status(400).json({ error: "Missing phoneNumber or amount" });
+  }
+
+  // 🚫 Check if user is blacklisted
+  try {
+    const blacklisted = await isPhoneBlacklisted(phoneNumber);
+    if (blacklisted) {
+      return res.status(403).json({
+        error: "You are blocked from renting. Please contact support.",
+      });
+    }
+  } catch (err) {
+    console.error("❌ Blacklist check failed:", err);
   }
 
   const imei = stationImeisByCode[stationCode];
@@ -206,6 +221,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/charts", chartsRoute);
 app.use("/api/chartsAll", chartsAll);
+app.use("/api/blacklist", blacklistRoutes);
 
 // 🔁 : Auto update station stats every 5 minutes
 setInterval(() => {
