@@ -26,7 +26,7 @@ router.post("/log", async (req, res) => {
       imei,
       battery_id,
       slot_id,
-      amount,
+      amount: parseFloat(amount) || 0,
       phoneNumber,
       status: "rented",
       timestamp: Timestamp.now(),
