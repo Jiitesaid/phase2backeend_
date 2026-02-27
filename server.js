@@ -6,10 +6,11 @@ import axios from "axios";
 import cors from "cors";
 import bodyParser from "body-parser";
 import { v4 as uuidv4 } from "uuid";
+import { Timestamp } from "firebase-admin/firestore";
 
 // 🔗 Route imports
 import stationRoutes from "./routes/stationRoutes.js";
-import rentalRoutes from "./routes/rentalRoutes.js";
+// import rentalRoutes from "./routes/rentalRoutes.js"; // ❌ Not needed
 import statsRoutes from "./routes/statsRoutes.js";
 import updateStationStats from "./jobs/station_stats.js";
 import customerRoutes from "./routes/customers.js";
@@ -68,11 +69,11 @@ async function getAvailableBattery(imei) {
       b.lock_status === "1" &&
       parseInt(b.battery_capacity) >= 60 &&
       b.battery_abnormal === "0" &&
-      b.cable_abnormal === "0"
+      b.cable_abnormal === "0",
   );
 
   batteries.sort(
-    (a, b) => parseInt(b.battery_capacity) - parseInt(a.battery_capacity)
+    (a, b) => parseInt(b.battery_capacity) - parseInt(a.battery_capacity),
   );
 
   return batteries[0];
@@ -93,6 +94,18 @@ app.get("/", (req, res) => {
   res.send("🚀 Waafi backend is running!");
 });
 
+// 🕐 Server timezone info
+app.get("/api/timezone", (req, res) => {
+  const now = new Date();
+  res.json({
+    serverTime: now.toISOString(),
+    serverTimeLocal: now.toString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezoneOffset: now.getTimezoneOffset(),
+    offsetHours: -now.getTimezoneOffset() / 60,
+  });
+});
+
 // 💳 Payment + rental logging + unlock battery
 app.post("/api/pay/:stationCode", async (req, res) => {
   const { stationCode } = req.params;
@@ -102,17 +115,17 @@ app.post("/api/pay/:stationCode", async (req, res) => {
     return res.status(400).json({ error: "Missing phoneNumber or amount" });
   }
 
-  // 🚫 Check if user is blacklisted
-  try {
-    const blacklisted = await isPhoneBlacklisted(phoneNumber);
-    if (blacklisted) {
-      return res.status(403).json({
-        error: "You are blocked from renting. Please contact support.",
-      });
-    }
-  } catch (err) {
-    console.error("❌ Blacklist check failed:", err);
-  }
+  // 🚫 TEMPORARILY DISABLED: Check if user is blacklisted
+  // try {
+  //   const blacklisted = await isPhoneBlacklisted(phoneNumber);
+  //   if (blacklisted) {
+  //     return res.status(403).json({
+  //       error: "You are blocked from renting. Please contact support.",
+  //     });
+  //   }
+  // } catch (err) {
+  //   console.error("❌ Blacklist check failed:", err);
+  // }
 
   const imei = stationImeisByCode[stationCode];
   if (!imei) {
@@ -120,16 +133,6 @@ app.post("/api/pay/:stationCode", async (req, res) => {
   }
 
   try {
-    // ✅ Check station online status before proceeding
-    // const statsDoc = await db.collection("station_stats").doc(imei).get();
-    // if (!statsDoc.exists) {
-    //   return res.status(404).json({ error: "Station stats not found ❌" });
-    // }
-    // const isOnline = statsDoc.data().station_status === "Online";
-    // if (!isOnline) {
-    //   return res.status(403).json({ error: "Station is currently offline ⛔" });
-    // }
-
     const battery = await getAvailableBattery(imei);
     if (!battery) {
       return res.status(400).json({ error: "No available battery ≥ 60%" });
@@ -137,7 +140,7 @@ app.post("/api/pay/:stationCode", async (req, res) => {
 
     const { battery_id, slot_id } = battery;
 
-    // 🔐 Step 1: WAAFI payment request
+    //  Step 1: WAAFI payment request
     const waafiPayload = {
       schemaVersion: "1.0",
       requestId: uuidv4(),
@@ -165,8 +168,8 @@ app.post("/api/pay/:stationCode", async (req, res) => {
     });
 
     const approved =
-      waafiRes.data.responseCode === "2001" &&
-      waafiRes.data.params?.state === "APPROVED";
+      waafiRes.data.responseCode === "2001" ||
+      waafiRes.data.responseCode == 2001;
 
     if (!approved) {
       return res.status(400).json({
@@ -175,16 +178,40 @@ app.post("/api/pay/:stationCode", async (req, res) => {
       });
     }
 
-    // // 📝 Step 2: Log rental to Firestore
+    // 🔒 DUPLICATE PREVENTION: Check by Waafi transactionId
+    const { transactionId, issuerTransactionId, referenceId } =
+      waafiRes.data.params || {};
+
+    if (transactionId) {
+      const existingTx = await db
+        .collection("rentals")
+        .where("transactionId", "==", transactionId)
+        .limit(1)
+        .get();
+
+      if (!existingTx.empty) {
+        console.log(`⚠️ Duplicate Waafi transaction blocked: ${transactionId}`);
+        return res.json({
+          success: true,
+          message: "Payment already processed",
+          transactionId,
+        });
+      }
+    }
+
+    // 📝 Step 2: Log rental to Firestore (with transactionId to prevent duplicates)
     const rentalRef = await db.collection("rentals").add({
       imei,
       stationCode,
       battery_id,
       slot_id,
       phoneNumber,
-      amount,
+      amount: parseFloat(amount) || 0,
       status: "rented",
-      timestamp: new Date(),
+      transactionId: transactionId || null,
+      issuerTransactionId: issuerTransactionId || null,
+      referenceId: referenceId || null,
+      timestamp: Timestamp.now(),
     });
 
     // 🔓 Step 3: Unlock battery
@@ -213,7 +240,7 @@ app.post("/api/pay/:stationCode", async (req, res) => {
 
 // 📦 Routes
 app.use("/api/stations", stationRoutes);
-app.use("/api/rentals", rentalRoutes);
+// app.use("/api/rentals", rentalRoutes); // ❌ Not needed
 app.use("/api/stats", statsRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/revenue", revenueRoutes);
@@ -224,10 +251,13 @@ app.use("/api/chartsAll", chartsAll);
 app.use("/api/blacklist", blacklistRoutes);
 
 // 🔁 : Auto update station stats every 5 minutes
-setInterval(() => {
-  console.log("⏱️ Updating station stats...");
-  updateStationStats();
-}, 15 * 60 * 1000);
+setInterval(
+  () => {
+    console.log("⏱️ Updating station stats...");
+    updateStationStats();
+  },
+  15 * 60 * 1000,
+);
 
 // 🚀 Server start
 app.listen(PORT, () => {
